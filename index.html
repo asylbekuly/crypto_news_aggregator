@@ -52,41 +52,50 @@
   <h1>📰 Crypto News</h1>
   <input type="text" id="query" placeholder="Enter coin name (e.g. BTC)">
   <button onclick="fetchNews()">Search</button>
-
+  
+  <h2 id="price">💰 Price will appear here...</h2> <!-- Добавлено -->
+  
   <div id="news-list"></div>
+  
 
   <script>
     async function fetchNews() {
-      const query = document.getElementById('query').value;
-      const res = await fetch(`/news?query=${query}`);
-      const data = await res.json();
+  const query = document.getElementById('query').value;
+  const res = await fetch(`/news?query=${query}`);
+  const data = await res.json();
 
-      const container = document.getElementById('news-list');
-      container.innerHTML = '';
+  const container = document.getElementById('news-list');
+  container.innerHTML = '';
 
-      if (data.length === 0) {
-        container.innerHTML = "<p>No news found.</p>";
-        return;
-      }
+  document.getElementById('price').innerText = data.price_info
+    ? `💰 Price: $${data.price_info.price.toFixed(2)} (${data.price_info.percent_change_24h.toFixed(2)}%)`
+    : "❌ Price not found";
 
-      data.forEach(item => {
-        const div = document.createElement('div');
-        div.className = "news";
+  if (data.news.length === 0) {
+    container.innerHTML = "<p>No news found.</p>";
+    return;
+  }
 
-        const title = item.title?.rendered || "No title";
-        const link = item.link;
-        const date = item.date;
-        const descHtml = item.description?.rendered || "";
+  data.news.forEach(item => {
+    const div = document.createElement('div');
+    div.className = "news";
 
-        div.innerHTML = `
-          <a href="${link}" target="_blank"><h2>${title}</h2></a>
-          <p class="date">${new Date(date).toLocaleString()}</p>
-          ${descHtml}
-        `;
+    const title = item.title?.rendered || "No title";
+    const link = item.link;
+    const date = item.date;
+    const descHtml = item.description_obj?.rendered || "";
 
-        container.appendChild(div);
-      });
-    }
+    div.innerHTML = `
+      <a href="${link}" target="_blank"><h3>${title}</h3></a>
+      <p class="date">${new Date(date).toLocaleString()}</p>
+      ${descHtml}
+    `;
+
+    container.appendChild(div);
+  });
+}
+
+
   </script>
 
 </body>
