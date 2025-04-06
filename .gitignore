@@ -1,1 +1,18 @@
+# Rust
 /target
+Cargo.lock
+
+# Frontend
+/node_modules
+/dist
+
+# Environment
+.env
+.env.*
+
+# System
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode

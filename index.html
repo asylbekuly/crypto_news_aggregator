@@ -6,9 +6,13 @@
   <style>
     body {
       font-family: sans-serif;
-      background-color: #121212;
       color: #eee;
       padding: 20px;
+      background-color: #101010;
+    }
+
+    h1, h2, p {
+      color: #00bcd4;
     }
 
     input, button {
@@ -21,6 +25,7 @@
 
     input {
       width: 300px;
+      border: 3px solid #00bcd4;
     }
 
     button {
@@ -45,58 +50,59 @@
       color: #aaa;
       font-size: 14px;
     }
+
+    h3 {
+      color: #c0aaff;
+    }
   </style>
 </head>
 <body>
-
-  <h1>📰 Crypto News</h1>
+  <h1>Crypto News</h1>
   <input type="text" id="query" placeholder="Enter coin name (e.g. BTC)">
   <button onclick="fetchNews()">Search</button>
-  
-  <h2 id="price">💰 Price will appear here...</h2> <!-- Добавлено -->
-  
+
+  <h2 id="price">Price will appear here...</h2>
+
   <div id="news-list"></div>
-  
 
   <script>
     async function fetchNews() {
-  const query = document.getElementById('query').value;
-  const res = await fetch(`/news?query=${query}`);
-  const data = await res.json();
+      const query = document.getElementById('query').value;
+      const res = await fetch(`/news?query=${query}`);
+      const data = await res.json();
 
-  const container = document.getElementById('news-list');
-  container.innerHTML = '';
+      const container = document.getElementById('news-list');
+      container.innerHTML = '';
 
-  document.getElementById('price').innerText = data.price_info
-    ? `💰 Price: $${data.price_info.price.toFixed(2)} (${data.price_info.percent_change_24h.toFixed(2)}%)`
-    : "❌ Price not found";
+      // Обновляем цену
+      document.getElementById('price').innerText = data.price_info
+        ? `💰 Price: $${data.price_info.price.toFixed(2)} (${data.price_info.percent_change_24h.toFixed(2)}%)`
+        : "❌ Price not found";
 
-  if (data.news.length === 0) {
-    container.innerHTML = "<p>No news found.</p>";
-    return;
-  }
+      if (!data.news || data.news.length === 0) {
+        container.innerHTML = "<p>No news found.</p>";
+        return;
+      }
 
-  data.news.forEach(item => {
-    const div = document.createElement('div');
-    div.className = "news";
+      data.news.forEach(item => {
+        const div = document.createElement('div');
+        div.className = "news";
 
-    const title = item.title?.rendered || "No title";
-    const link = item.link;
-    const date = item.date;
-    const descHtml = item.description_obj?.rendered || "";
+        // Поддержка разных API форматов
+        const title = item.title?.rendered || item.title || "No title available";
+        const link = item.url || item.link || "#";
+        const date = item.createdAt || item.date || null;
 
-    div.innerHTML = `
-      <a href="${link}" target="_blank"><h3>${title}</h3></a>
-      <p class="date">${new Date(date).toLocaleString()}</p>
-      ${descHtml}
-    `;
+        div.innerHTML = `
+          <a href="${link}" target="_blank">
+            <h3>${title}</h3>
+          </a>
+          <p class="date">${date ? new Date(date).toLocaleString() : ""}</p>
+        `;
 
-    container.appendChild(div);
-  });
-}
-
-
+        container.appendChild(div);
+      });
+    }
   </script>
-
 </body>
 </html>

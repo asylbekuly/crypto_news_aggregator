@@ -1,29 +1,7 @@
 use serde::{Deserialize, Serialize};
-use warp::{Filter, Reply};
 use std::collections::HashMap;
-
-#[derive(Debug, Deserialize, Serialize)]
-struct RenderedField {
-    rendered: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct NewsItem {
-    id: u64,
-    date: String,
-    link: String,
-
-    #[serde(rename = "title")]
-    title_obj: RenderedField,
-
-    #[serde(rename = "description")]
-    description_obj: Option<RenderedField>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ApiResponse {
-    data: Vec<NewsItem>,
-}
+use std::env;
+use warp::{Filter, Reply};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CoinMarketCapResponse {
@@ -49,15 +27,40 @@ struct PriceInfo {
     percent_change_24h: f64,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct DailyNewsItem {
+    title: String,
+    url: String,
+    source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DailyResponse {
+    data: Vec<DailyNewsItem>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ExtraNewsItem {
+    title: String,
+    url: String,
+    published_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExtraResponse {
+    data: Vec<ExtraNewsItem>,
+}
+
 #[derive(Debug, Serialize)]
-struct CombinedResponse {
-    query: String,
-    price_info: Option<PriceInfo>,
-    news: Vec<NewsItem>,
+struct UnifiedArticle {
+    title: String,
+    url: String,
+    source: String,
 }
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
     println!("🚀 Server running at http://localhost:3030");
 
     let news_route = warp::path("news")
@@ -66,62 +69,57 @@ async fn main() {
         .and_then(handle_news);
 
     let static_files = warp::fs::file("index.html");
-
     let routes = news_route.or(static_files);
+
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
 async fn handle_news(params: HashMap<String, String>) -> Result<impl warp::Reply, warp::Rejection> {
     if let Some(query) = params.get("query") {
-        let news = fetch_news(query).await.unwrap_or_default();
+        let mut news = vec![];
+
+        if let Ok(daily) = fetch_daily_news().await {
+            for a in daily {
+                if a.title.to_lowercase().contains(&query.to_lowercase()) {
+                    news.push(UnifiedArticle {
+                        title: a.title,
+                        url: a.url,
+                        source: a.source.unwrap_or("Daily".to_string()),
+                    });
+                }
+            }
+        }
+
+        if let Ok(extra) = fetch_extra_news().await {
+            for a in extra {
+                if a.title.to_lowercase().contains(&query.to_lowercase()) {
+                    news.push(UnifiedArticle {
+                        title: a.title,
+                        url: a.url,
+                        source: "Extra".to_string(),
+                    });
+                }
+            }
+        }
+
         let price = fetch_coin_price(query).await.ok();
 
-        let response = CombinedResponse {
-            query: query.to_string(),
-            price_info: price,
-            news,
-        };
+        let response = warp::reply::json(&serde_json::json!({
+            "query": query,
+            "price_info": price,
+            "news": news
+        }));
 
-        Ok(warp::reply::json(&response).into_response())
-    } else {
-        Ok(warp::reply::with_status(
-            "Missing query",
-            warp::http::StatusCode::BAD_REQUEST,
-        )
-        .into_response())
+        return Ok(response);
     }
-}
 
-async fn fetch_news(query: &str) -> Result<Vec<NewsItem>, reqwest::Error> {
-    let client = reqwest::Client::new();
-    let url = "https://crypto-news54.p.rapidapi.com/v2/media?orderby=date&order=desc&context=view&status=inherit&per_page=20&page=1";
-
-    let response = client
-        .get(url)
-        .header("X-RapidAPI-Key", "d72c95cd6fmsh1258d9a3f329cfap167ffdjsn8554ec9e8fac")
-        .header("X-RapidAPI-Host", "crypto-news54.p.rapidapi.com")
-        .send()
-        .await?;
-
-    let json: ApiResponse = response.json().await?;
-
-    let filtered_news: Vec<NewsItem> = json
-        .data
-        .into_iter()
-        .filter(|news| {
-            let query_lc = query.to_lowercase();
-            news.title_obj.rendered.to_lowercase().contains(&query_lc)
-                || news.description_obj.as_ref().map_or(false, |desc| {
-                    desc.rendered.to_lowercase().contains(&query_lc)
-                })
-        })
-        .collect();
-
-    Ok(filtered_news)
+    Ok(warp::reply::json(&serde_json::json!({ "error": "Missing query" })))
+    
 }
 
 async fn fetch_coin_price(symbol: &str) -> Result<PriceInfo, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
+    let cmc_api_key = env::var("CMC_API_KEY")?;
     let url = format!(
         "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={}",
         symbol
@@ -129,7 +127,7 @@ async fn fetch_coin_price(symbol: &str) -> Result<PriceInfo, Box<dyn std::error:
 
     let response = client
         .get(&url)
-        .header("X-CMC_PRO_API_KEY", "90c60a9c-1555-4163-92b8-7c28011b95db")
+        .header("X-CMC_PRO_API_KEY", cmc_api_key)
         .header("Accept", "application/json")
         .send()
         .await?;
@@ -143,4 +141,34 @@ async fn fetch_coin_price(symbol: &str) -> Result<PriceInfo, Box<dyn std::error:
         .ok_or("Symbol not found in CoinMarketCap")?;
 
     Ok(price_info)
+}
+
+async fn fetch_daily_news() -> Result<Vec<DailyNewsItem>, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let key = env::var("RAPIDAPI_KEY")?;
+
+    let response = client
+        .get("https://cryptocurrency-news2.p.rapidapi.com/v1/cryptodaily")
+        .header("x-rapidapi-key", &key)
+        .header("x-rapidapi-host", "cryptocurrency-news2.p.rapidapi.com")
+        .send()
+        .await?;
+
+    let json: DailyResponse = response.json().await?;
+    Ok(json.data)
+}
+
+async fn fetch_extra_news() -> Result<Vec<ExtraNewsItem>, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let key = env::var("RAPIDAPI_KEY")?;
+
+    let response = client
+        .get("https://news-api65.p.rapidapi.com/api/v1/crypto/articles/search?format=json&time_frame=24h&page=1&limit=10")
+        .header("x-rapidapi-key", &key)
+        .header("x-rapidapi-host", "news-api65.p.rapidapi.com")
+        .send()
+        .await?;
+
+    let json: ExtraResponse = response.json().await?;
+    Ok(json.data)
 }
